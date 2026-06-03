@@ -303,59 +303,120 @@ function scaleCard() {
 }
 window.addEventListener('resize', scaleCard);
 
+
 function updateCard() {
     $('view-shop').innerHTML =
         `<span class="deco-sym">✦</span>${$('shopName').value || 'Your Shop'}<span class="deco-sym">✦</span>`;
-    $('view-cust').textContent   = $('custName').value   || 'Customer';
-    $('view-footer').textContent = $('footerText').value || '';
 
-    let n = Math.max(0, Math.min(10, parseInt($('stampCount').value) || 0));
+    $('view-cust').textContent =
+        $('custName').value || 'Customer';
+
+    $('view-footer').textContent =
+        $('footerText').value || '';
+
+    let n = Math.max(
+        0,
+        Math.min(10, parseInt($('stampCount').value) || 0)
+    );
+
     $('stampCount').value = n;
 
     const grid = $('grid-stamps');
     grid.innerHTML = '';
+
     for (let i = 1; i <= 10; i++) {
         const slot = document.createElement('div');
-        slot.className   = 'stamp-slot';
-        slot.textContent = i;
+        slot.className = 'stamp-slot';
+
         if (i <= n) {
-            slot.textContent = '';
             const img = document.createElement('img');
             img.src = ICONS[(i - 1) % ICONS.length];
             img.alt = '';
             slot.appendChild(img);
+        } else {
+            slot.textContent = i;
         }
+
         grid.appendChild(slot);
     }
 }
 
+function saveData() {
+    try {
+        localStorage.setItem('shopName', $('shopName').value);
+        localStorage.setItem('custName', $('custName').value);
+        localStorage.setItem('stampCount', $('stampCount').value);
+        localStorage.setItem('footerText', $('footerText').value);
+    } catch (e) {
+        console.error(e);
+    }
+
+    console.log('SAVE', {
+        shopName: $('shopName').value,
+        custName: $('custName').value,
+        stampCount: $('stampCount').value,
+        footerText: $('footerText').value
+    });
+}
+
+function loadData() {
+    try {
+        $('shopName').value =
+            localStorage.getItem('shopName') || '';
+
+        $('custName').value =
+            localStorage.getItem('custName') || '';
+
+        $('stampCount').value =
+            localStorage.getItem('stampCount') || '0';
+
+        $('footerText').value =
+            localStorage.getItem('footerText') || '';
+    } catch (e) {
+        console.error(e);
+    }
+    console.log('LOAD', {
+    shopName: localStorage.getItem('shopName'),
+    custName: localStorage.getItem('custName'),
+    stampCount: localStorage.getItem('stampCount'),
+    footerText: localStorage.getItem('footerText')
+});
+}
+
 function showToast(msg, ms = 3500) {
     const t = $('toast');
-    t.textContent   = msg;
+    t.textContent = msg;
     t.style.display = 'block';
-    setTimeout(() => { t.style.display = 'none'; }, ms);
+
+    setTimeout(() => {
+        t.style.display = 'none';
+    }, ms);
 }
 
 function exportCard() {
     const btn = $('exportBtn');
+
     btn.disabled = true;
     btn.textContent = '⏳ กำลังสร้างรูป...';
 
-    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    const isIOS =
+        /iphone|ipad|ipod/i.test(navigator.userAgent);
 
     document.fonts.ready
         .then(() => {
-            return domtoimage.toBlob($('stamp-card'), {
-                scale: 3,
-                bgcolor: null
-            });
+            return domtoimage.toBlob(
+                $('stamp-card'),
+                {
+                    scale: 3,
+                    bgcolor: null
+                }
+            );
         })
         .then(async (blob) => {
 
             const fileName =
                 `PremiumCard-${$('custName').value || 'customer'}.png`;
 
-            // iPhone / iPad
             if (isIOS && navigator.share) {
 
                 const file = new File(
@@ -373,14 +434,16 @@ function exportCard() {
                     showToast('✅ เลือก "บันทึกรูปภาพ" ได้เลย');
                     return;
                 } catch (e) {
-                    console.log('Share cancelled');
+                    console.log(e);
                 }
             }
 
-            // Android / PC
-            const url = URL.createObjectURL(blob);
+            const url =
+                URL.createObjectURL(blob);
 
-            const a = document.createElement('a');
+            const a =
+                document.createElement('a');
+
             a.href = url;
             a.download = fileName;
 
@@ -404,11 +467,26 @@ function exportCard() {
         });
 }
 
-['shopName','custName','stampCount','footerText'].forEach(id =>
-    $(id).addEventListener('input', updateCard));
+['shopName','custName','stampCount','footerText']
+.forEach(id => {
+    const el = $(id);
 
+    if (!el) return;
+
+    el.addEventListener('input', () => {
+        saveData();
+        updateCard();
+    });
+
+    el.addEventListener('change', () => {
+        saveData();
+        updateCard();
+    });
+});
+
+// โหลดข้อมูลที่เคยกรอกไว้
+loadData();
 updateCard();
-setTimeout(scaleCard, 50);
 </script>
 </body>
 </html>
