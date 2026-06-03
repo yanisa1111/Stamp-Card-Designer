@@ -336,51 +336,72 @@ function showToast(msg, ms = 3500) {
     setTimeout(() => { t.style.display = 'none'; }, ms);
 }
 
-/* ── iOS fix: open window BEFORE async work ── */
 function exportCard() {
     const btn = $('exportBtn');
-    btn.disabled    = true;
+    btn.disabled = true;
     btn.textContent = '⏳ กำลังสร้างรูป...';
 
-    const isIOS    = /iphone|ipad|ipod/i.test(navigator.userAgent);
-    const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+    const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
 
-    // Open the window SYNCHRONOUSLY before any async call (iOS requirement)
-    let iosWin = null;
-    if (isIOS || isSafari) {
-        iosWin = window.open('', '_blank');
-        if (iosWin) {
-            iosWin.document.write('<html><body style="margin:0;background:#1a1a2e;display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column"><p style="color:#ccc;font-family:sans-serif;font-size:14px;margin-bottom:16px">⏳ กำลังสร้างรูป กรุณารอสักครู่...</p></body></html>');
-        }
-    }
+    document.fonts.ready
+        .then(() => {
+            return domtoimage.toBlob($('stamp-card'), {
+                scale: 3,
+                bgcolor: null
+            });
+        })
+        .then(async (blob) => {
 
-    document.fonts.ready.then(() => {
-        return domtoimage.toPng($('stamp-card'), { scale: 3, bgcolor: null });
-    }).then(dataUrl => {
-        if (iosWin) {
-            // Write image into already-open window
-            iosWin.document.body.innerHTML =
-                '<div style="display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;padding:20px;background:#1a1a2e">' +
-                '<img src="' + dataUrl + '" style="max-width:100%;border-radius:16px;box-shadow:0 8px 40px rgba(0,0,0,0.5)">' +
-                '<p style="color:#e0c9ff;font-family:sans-serif;font-size:15px;margin-top:16px;text-align:center">กดค้างที่รูปแล้วเลือก<br><b>\"บันทึกไปยังรูปภาพ\"</b></p>' +
-                '</div>';
-            iosWin.document.title = 'บันทึกรูปภาพ';
-            showToast('🖼️ กดค้างที่รูปแล้วเลือก "บันทึกไปยังรูปภาพ"', 5000);
-        } else {
-            const a    = document.createElement('a');
-            a.download = `PremiumCard-${$('custName').value || 'customer'}.png`;
-            a.href     = dataUrl;
+            const fileName =
+                `PremiumCard-${$('custName').value || 'customer'}.png`;
+
+            // iPhone / iPad
+            if (isIOS && navigator.share) {
+
+                const file = new File(
+                    [blob],
+                    fileName,
+                    { type: 'image/png' }
+                );
+
+                try {
+                    await navigator.share({
+                        files: [file],
+                        title: fileName
+                    });
+
+                    showToast('✅ เลือก "บันทึกรูปภาพ" ได้เลย');
+                    return;
+                } catch (e) {
+                    console.log('Share cancelled');
+                }
+            }
+
+            // Android / PC
+            const url = URL.createObjectURL(blob);
+
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = fileName;
+
+            document.body.appendChild(a);
             a.click();
+            document.body.removeChild(a);
+
+            setTimeout(() => {
+                URL.revokeObjectURL(url);
+            }, 1000);
+
             showToast('✅ บันทึกรูปเรียบร้อย!');
-        }
-    }).catch(err => {
-        console.error('Export error:', err);
-        if (iosWin) iosWin.close();
-        showToast('❌ เกิดข้อผิดพลาด กรุณาลองใหม่');
-    }).finally(() => {
-        btn.disabled    = false;
-        btn.textContent = '📸 เซฟเป็นรูปภาพ';
-    });
+        })
+        .catch(err => {
+            console.error(err);
+            showToast('❌ เกิดข้อผิดพลาด กรุณาลองใหม่');
+        })
+        .finally(() => {
+            btn.disabled = false;
+            btn.textContent = '📸 เซฟเป็นรูปภาพ';
+        });
 }
 
 ['shopName','custName','stampCount','footerText'].forEach(id =>
