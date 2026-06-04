@@ -393,78 +393,205 @@ function showToast(msg, ms = 3500) {
     }, ms);
 }
 
-function exportCard() {
-    const btn = $('exportBtn');
+async function exportCard() {
+  const btn = $('exportBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ กำลังสร้างรูป...';
 
-    btn.disabled = true;
-    btn.textContent = '⏳ กำลังสร้างรูป...';
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
 
-    const isIOS =
-        /iphone|ipad|ipod/i.test(navigator.userAgent);
+  try {
+    // รอฟอนต์โหลดครบ (โหลดอยู่แล้วในหน้า ไม่ต้อง re-parse)
+    await document.fonts.ready;
 
-    document.fonts.ready
-        .then(() => {
-            return domtoimage.toBlob(
-                $('stamp-card'),
-                {
-                    scale: 3,
-                    bgcolor: null
-                }
-            );
-        })
-        .then(async (blob) => {
+    const PX   = isIOS ? 2 : 3;  // iOS ลด scale กัน memory crash
+    const W    = CARD_W * PX;
+    const H    = CARD_H * PX;
 
-            const fileName =
-                `PremiumCard-${$('custName').value || 'customer'}.png`;
+    const canvas = document.createElement('canvas');
+    canvas.width  = W;
+    canvas.height = H;
+    const ctx = canvas.getContext('2d');
+    ctx.scale(PX, PX);  // วาดใน coordinate space เดิม (650×440)
 
-            if (isIOS && navigator.share) {
+    /* ─── Background ─────────────────────────────────── */
+    const bgGrad = ctx.createLinearGradient(0, 0, CARD_W, CARD_H);
+    bgGrad.addColorStop(0,   '#fff6fd');
+    bgGrad.addColorStop(0.4, '#f1e5ff');
+    bgGrad.addColorStop(1,   '#e8f5ff');
+    ctx.fillStyle = bgGrad;
+    ctx.beginPath();
+    ctx.roundRect(0, 0, CARD_W, CARD_H, 32);
+    ctx.fill();
 
-                const file = new File(
-                    [blob],
-                    fileName,
-                    { type: 'image/png' }
-                );
+    /* ─── Aura blobs ──────────────────────────────────── */
+    drawRadial(ctx, CARD_W - 40, -40, 110, 'rgba(253,182,231,0.55)');
+    drawRadial(ctx, -30, CARD_H + 50, 100, 'rgba(166,193,238,0.55)');
 
-                try {
-                    await navigator.share({
-                        files: [file],
-                        title: fileName
-                    });
+    /* ─── Shop name (Great Vibes 48px) ────────────────── */
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
 
-                    showToast('✅ เลือก "บันทึกรูปภาพ" ได้เลย');
-                    return;
-                } catch (e) {
-                    console.log(e);
-                }
-            }
+    ctx.font      = `400 48px 'Great Vibes', cursive`;
+    ctx.fillStyle = '#5d427d';
+    const shopName = $('shopName').value || 'Your Shop';
+    ctx.fillText(shopName, CARD_W / 2, 62);
 
-            const url =
-                URL.createObjectURL(blob);
+    // deco ✦ ซ้าย-ขวา (Mali)
+    ctx.font      = `400 22px 'Mali', cursive`;
+    ctx.fillStyle = 'rgba(177,159,251,0.8)';
+    const shopW = ctx.measureText(shopName).width;  // วัดด้วย Great Vibes ก่อนเปลี่ยน font
+    // เปลี่ยน font ก่อน measure deco
+    ctx.font = `400 48px 'Great Vibes', cursive`;
+    const sw = ctx.measureText(shopName).width;
+    ctx.font = `400 22px 'Mali', cursive`;
+    ctx.fillText('✦', CARD_W/2 - sw/2 - 22, 62);
+    ctx.fillText('✦', CARD_W/2 + sw/2 + 22, 62);
 
-            const a =
-                document.createElement('a');
+    /* ─── Customer pill ───────────────────────────────── */
+    const custText = `For: ` + ($('custName').value || 'Customer');
+    ctx.font = `700 14px 'Mali', cursive`;
+    ctx.textBaseline = 'middle';
+    const pillW = ctx.measureText(custText).width + 36;
+    const pillX = (CARD_W - pillW) / 2;
+    const pillY = 94;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    ctx.beginPath();
+    ctx.roundRect(pillX, pillY, pillW, 26, 13);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(177,159,251,0.4)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = '#6d528f';
+    ctx.fillText(custText, CARD_W/2, pillY + 13);
 
-            a.href = url;
-            a.download = fileName;
+    /* ─── Stamp grid (5×2) ────────────────────────────── */
+    const stampN  = Math.min(10, parseInt($('stampCount').value) || 0);
+    const cols    = 5;
+    const gapX    = 14, gapY = 14;
+    const areaW   = CARD_W - 60;
+    const slotSz  = (areaW - gapX * 4) / cols;  // 1 slot ≈ 106px
+    const r       = slotSz / 2;
+    const startX  = 30 + r;
+    const startY  = 140 + r;
 
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+    // โหลด stamp images ล่วงหน้า (ถ้ามี)
+    const stampImgs = await preloadIcons();
 
-            setTimeout(() => {
-                URL.revokeObjectURL(url);
-            }, 1000);
+    for (let i = 0; i < 10; i++) {
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const cx  = startX + col * (slotSz + gapX);
+      const cy  = startY + row * (slotSz + gapY);
 
-            showToast('✅ บันทึกรูปเรียบร้อย!');
-        })
-        .catch(err => {
-            console.error(err);
-            showToast('❌ เกิดข้อผิดพลาด กรุณาลองใหม่');
-        })
-        .finally(() => {
-            btn.disabled = false;
-            btn.textContent = '📸 เซฟเป็นรูปภาพ';
-        });
+      ctx.beginPath();
+      ctx.arc(cx, cy, r, 0, Math.PI * 2);
+
+      if (i < stampN) {
+        ctx.fillStyle = 'rgba(255,200,80,0.18)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(177,159,251,0.7)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        // วาด stamp image หรือ emoji fallback
+        if (stampImgs[i % stampImgs.length]) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx, cy, r * 0.88, 0, Math.PI * 2);
+          ctx.clip();
+          const d = r * 0.88 * 2;
+          ctx.drawImage(stampImgs[i % stampImgs.length], cx-r*0.88, cy-r*0.88, d, d);
+          ctx.restore();
+        } else {
+          ctx.font = `${r * 1.1}px serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillStyle = '#b19ffb';
+          ctx.fillText('★', cx, cy);
+        }
+      } else {
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        ctx.font = `700 14px 'Mali', cursive`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = 'rgba(116,82,161,0.5)';
+        ctx.fillText(i + 1, cx, cy);
+      }
+    }
+
+    /* ─── Footer pill ─────────────────────────────────── */
+    const footerTxt = $('footerText').value;
+    if (footerTxt) {
+      const fY = CARD_H - 44;
+      const fW = CARD_W * 0.9;
+      const fX = (CARD_W - fW) / 2;
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.beginPath();
+      ctx.roundRect(fX, fY, fW, 34, 16);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.font = `700 13.5px 'Mali', cursive`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#5c417d';
+      ctx.fillText(footerTxt, CARD_W/2, fY + 17, fW - 40);
+    }
+
+    /* ─── Export blob ─────────────────────────────────── */
+    canvas.toBlob(async (blob) => {
+      const fileName = `PremiumCard-${$('custName').value||'customer'}.png`;
+      if (isIOS && navigator.share && navigator.canShare) {
+        const file = new File([blob], fileName, { type: 'image/png' });
+        if (navigator.canShare({ files: [file] })) {
+          try { await navigator.share({ files: [file] });
+            showToast('✅ เลือก "บันทึกรูปภาพ" ได้เลย'); return;
+          } catch(e) {}
+        }
+      }
+      const url = URL.createObjectURL(blob);
+      const a   = document.createElement('a');
+      a.href = url; a.download = fileName;
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      showToast('✅ บันทึกรูปเรียบร้อย!');
+    }, 'image/png');
+
+  } catch(err) {
+    console.error(err);
+    showToast('❌ เกิดข้อผิดพลาด กรุณาลองใหม่');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '📸 เซฟเป็นรูปภาพ';
+  }
+}
+function drawRadial(ctx, cx, cy, r, color) {
+  const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+  g.addColorStop(0, color);
+  g.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+// โหลด ICONS[] เป็น HTMLImageElement ล่วงหน้า
+async function preloadIcons() {
+  if (!ICONS || ICONS.length === 0) return [];
+  return Promise.all(
+    ICONS.map(src => new Promise(res => {
+      const img = new Image();
+      img.onload  = () => res(img);
+      img.onerror = () => res(null);
+      img.src = src;  // src เป็น base64 อยู่แล้ว → โหลดได้เลย
+    }))
+  );
 }
 
 ['shopName','custName','stampCount','footerText']
